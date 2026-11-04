@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>音楽モード（旋法）エクスプローラー</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  *:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
+  .mode-btn { transition: all 0.15s; }
+  .mode-btn.selected { ring: 2px; }
+  .piano-key { transition: background 0.1s, transform 0.05s; }
+  .piano-key.active { transform: scaleY(1.05); }
+  .white-key { background: #f9fafb; }
+  .white-key.in-mode { background: #c4b5fd; }
+  .white-key.root { background: #7c3aed; color: white; }
+  .white-key.playing { background: #fbbf24 !important; }
+  .black-key { background: #111827; }
+  .black-key.in-mode { background: #7c3aed; }
+  .black-key.root { background: #5b21b6; }
+  .black-key.playing { background: #f59e0b !important; }
+  .key-wrap { position: relative; display: inline-block; }
+  #piano-container { overflow-x: auto; }
+</style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+<div class="max-w-3xl mx-auto px-4 py-8">
+  <h1 class="text-2xl font-bold text-center mb-1 text-violet-400">音楽モード（旋法）エクスプローラー</h1>
+  <p class="text-center text-gray-400 text-xs mb-6">7つのモードを試聴・視覚化して旋法の雰囲気を学ぼう</p>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6" id="root-selector">
+    <div>
+      <label class="block text-xs text-gray-400 mb-1">ルート音</label>
+      <select id="root-select" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-violet-500 transition" aria-label="ルート音">
+        <option value="0">C</option>
+        <option value="2">D</option>
+        <option value="4">E</option>
+        <option value="5">F</option>
+        <option value="7">G</option>
+        <option value="9">A</option>
+        <option value="11">B</option>
+      </select>
+    </div>
+    <div class="col-span-1 md:col-span-3 flex items-end gap-2">
+      <button id="play-scale-btn"
+        class="flex-1 bg-violet-600 hover:bg-violet-500 text-white font-bold py-2 rounded-lg transition"
+        aria-label="スケールを再生">
+        スケール再生
+      </button>
+      <button id="stop-btn"
+        class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
+        aria-label="停止">
+        停止
+      </button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 gap-2 mb-6" id="mode-list"></div>
+
+  <div id="mode-detail" class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-6 hidden">
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <div>
+        <h2 id="detail-name" class="text-xl font-bold text-violet-300"></h2>
+        <p id="detail-jp" class="text-xs text-gray-400"></p>
+      </div>
+      <div id="detail-mood" class="text-sm text-gray-300 italic max-w-xs text-right"></div>
+    </div>
+    <div id="piano-container" class="mb-4">
+      <div id="piano-roll" class="flex items-start" style="height:80px; gap:0; position:relative; min-width:max-content;"></div>
+    </div>
+    <div class="grid grid-cols-7 gap-1 mb-3" id="interval-row"></div>
+    <div>
+      <p class="text-xs text-gray-500 mb-1">代表的な楽曲・ジャンル:</p>
+      <p id="detail-examples" class="text-sm text-gray-300"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const MODES = [
+    {
+      name: 'Ionian（イオニアン）', jp: '長音階 / メジャースケール',
+      intervals: [2,2,1,2,2,2,1],
+      color: '#7c3aed', mood: '明るく安定・喜び・自然な開放感',
+      examples: 'Happy Birthday、ドレミの歌、ポップス全般'
+    },
+    {
+      name: 'Dorian（ドリアン）', jp: '第2旋法',
+      intervals: [2,1,2,2,2,1,2],
+      color: '#2563eb', mood: 'マイナーだが少し明るい・ファンク・ジャズ的洗練',
+      examples: 'Oye Como Va（Santana）、So What（Miles Davis）、Scarborough Fair'
+    },
+    {
+      name: 'Phrygian（フリジアン）', jp: '第3旋法',
+      intervals: [1,2,2,2,1,2,2],
+      color: '#dc2626', mood: 'ダーク・異国情緒・フラメンコ的緊張感',
+      examples: 'フラメンコ全般、メタルリフ、White Zombie'
+    },
+    {
+      name: 'Lydian（リディアン）', jp: '第4旋法',
+      intervals: [2,2,2,1,2,2,1],
+      color: '#d97706', mood: '夢幻的・浮遊感・映画音楽的ファンタジー',
+      examples: 'The Simpsons テーマ、Flying（Beatles）、映画サントラ全般'
+    },
+    {
+      name: 'Mixolydian（ミクソリディアン）', jp: '第5旋法',
+      intervals: [2,2,1,2,2,1,2],
+      color: '#16a34a', mood: '明るいが少し翳り・ロック・ブルース的エネルギー',
+      examples: 'Sweet Home Chicago、Norwegian Wood（Beatles）、ケルト音楽'
+    },
+    {
+      name: 'Aeolian（エオリアン）', jp: '自然短音階 / マイナースケール',
+      intervals: [2,1,2,2,1,2,2],
+      color: '#0891b2', mood: '悲しく内省的・クラシカル・感情の深み',
+      examples: 'Stairway to Heaven、Scarborough Fair、クラシック小品'
+    },
+    {
+      name: 'Locrian（ロクリアン）', jp: '第7旋法',
+      intervals: [1,2,2,1,2,2,2],
+      color: '#6b7280', mood: '不安定・不協和・アバンギャルド・使用頻度最低',
+      examples: 'Half-Step（Metal）、Björk一部楽曲、現代音楽'
+    },
+  ];
+
+  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const WHITE_KEYS = [0,2,4,5,7,9,11];
+  const BLACK_KEYS = [1,3,6,8,10];
+
+  let selectedMode = 0;
+  let rootOffset = 0;
+  let audioCtx = null;
+  let playTimeout = null;
+
+  function getAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+
+  function playNote(freq, start, duration) {
+    const ctx = getAudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, ctx.currentTime + start);
+    gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
+    osc.start(ctx.currentTime + start);
+    osc.stop(ctx.currentTime + start + duration + 0.05);
+  }
+
+  function midiToFreq(midi) {
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  }
+
+  function getModeNotes(modeIdx, root) {
+    const mode = MODES[modeIdx];
+    const notes = [root];
+    let cur = root;
+    for (const step of mode.intervals) {
+      cur += step;
+      notes.push(cur);
+    }
+    return notes;
+  }
+
+  function buildModeList() {
+    const list = document.getElementById('mode-list');
+    list.innerHTML = '';
+    MODES.forEach((mode, i) => {
+      const row = document.createElement('button');
+      row.className = 'mode-btn flex items-center gap-3 bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-left hover:border-violet-700 transition w-full';
+      row.setAttribute('aria-label', mode.name + 'を選択');
+      if (i === selectedMode) row.classList.add('border-violet-600', 'bg-gray-800');
+
+      const dot = document.createElement('span');
+      dot.className = 'w-4 h-4 rounded-full flex-shrink-0';
+      dot.style.background = mode.color;
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'font-semibold text-sm text-gray-200 flex-1';
+      nameSpan.textContent = mode.name;
+
+      const moodSpan = document.createElement('span');
+      moodSpan.className = 'text-xs text-gray-500 hidden md:block max-w-xs text-right';
+      moodSpan.textContent = mode.mood;
+
+      row.appendChild(dot);
+      row.appendChild(nameSpan);
+      row.appendChild(moodSpan);
+      row.addEventListener('click', () => {
+        selectedMode = i;
+        buildModeList();
+        showDetail();
+      });
+      list.appendChild(row);
+    });
+  }
+
+  function showDetail() {
+    const detail = document.getElementById('mode-detail');
+    detail.classList.remove('hidden');
+    const mode = MODES[selectedMode];
+    document.getElementById('detail-name').textContent = mode.name;
+    document.getElementById('detail-jp').textContent = mode.jp;
+    document.getElementById('detail-mood').textContent = '「' + mode.mood + '」';
+    document.getElementById('detail-examples').textContent = mode.examples;
+
+    const root = 60 + rootOffset;
+    const notes = getModeNotes(selectedMode, root);
+    const noteSet = new Set(notes.map(n => n % 12));
+
+    buildPianoRoll(noteSet, root % 12);
+    buildIntervalRow(mode.intervals, notes);
+  }
+
+  function buildPianoRoll(noteSet, rootPc) {
+    const roll = document.getElementById('piano-roll');
+    roll.innerHTML = '';
+    const startOctave = 0;
+    const numKeys = 15;
+
+    const keyData = [];
+    let wIdx = 0;
+    for (let i = 0; i < 24; i++) {
+      const pc = i % 12;
+      const isWhite = WHITE_KEYS.includes(pc);
+      keyData.push({ i, pc, isWhite, wIdx: isWhite ? wIdx++ : null });
+      if (!isWhite) keyData[keyData.length-1].wIdx = wIdx - 0.5;
+    }
+
+    const whiteKeys = keyData.filter(k => k.isWhite).slice(0, 14);
+    const blackKeys = keyData.filter(k => !k.isWhite);
+
+    const container = document.createElement('div');
+    container.style.position = 'relative';
+    container.style.height = '80px';
+    container.style.display = 'inline-flex';
+
+    whiteKeys.forEach((k, wi) => {
+      const key = document.createElement('div');
+      key.style.width = '28px';
+      key.style.height = '78px';
+      key.style.border = '1px solid #9ca3af';
+      key.style.borderRadius = '0 0 4px 4px';
+      key.style.cursor = 'pointer';
+      key.style.position = 'relative';
+      key.style.zIndex = '1';
+      key.classList.add('piano-key');
+
+      const pc = k.pc;
+      if (pc === rootPc) { key.classList.add('root'); key.style.background = '#7c3aed'; }
+      else if (noteSet.has(pc)) { key.style.background = '#c4b5fd'; }
+      else { key.style.background = '#f9fafb'; }
+
+      const label = document.createElement('div');
+      label.style.position = 'absolute';
+      label.style.bottom = '4px';
+      label.style.left = '0';
+      label.style.right = '0';
+      label.style.textAlign = 'center';
+      label.style.fontSize = '9px';
+      label.style.color = pc === rootPc ? 'white' : '#6b7280';
+      label.textContent = NOTE_NAMES[pc];
+      key.appendChild(label);
+
+      key.addEventListener('click', () => {
+        const midi = 60 + k.i;
+        playNote(midiToFreq(midi), 0, 0.5);
+      });
+      container.appendChild(key);
+    });
+
+    blackKeys.forEach(k => {
+      const whiteIdx = Math.floor(k.wIdx);
+      if (whiteIdx >= 14) return;
+      const key = document.createElement('div');
+      key.style.width = '20px';
+      key.style.height = '48px';
+      key.style.position = 'absolute';
+      key.style.left = (whiteIdx * 28 + 20) + 'px';
+      key.style.top = '0';
+      key.style.zIndex = '2';
+      key.style.borderRadius = '0 0 4px 4px';
+      key.style.cursor = 'pointer';
+      key.classList.add('piano-key');
+
+      const pc = k.pc;
+      if (pc === rootPc) { key.style.background = '#5b21b6'; }
+      else if (noteSet.has(pc)) { key.style.background = '#7c3aed'; }
+      else { key.style.background = '#111827'; }
+
+      key.addEventListener('click', () => {
+        const midi = 60 + k.i;
+        playNote(midiToFreq(midi), 0, 0.5);
+      });
+      container.appendChild(key);
+    });
+
+    roll.appendChild(container);
+  }
+
+  function buildIntervalRow(intervals, notes) {
+    const row = document.getElementById('interval-row');
+    row.innerHTML = '';
+    const degree = ['1','2','3','4','5','6','7'];
+    for (let i = 0; i < 7; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'bg-gray-800 rounded-lg p-2 text-center';
+      const d = document.createElement('div');
+      d.className = 'text-xs text-gray-500';
+      d.textContent = degree[i];
+      const n = document.createElement('div');
+      n.className = 'text-sm font-mono font-bold text-violet-300';
+      n.textContent = NOTE_NAMES[notes[i] % 12];
+      cell.appendChild(d);
+      cell.appendChild(n);
+      row.appendChild(cell);
+    }
+  }
+
+  document.getElementById('root-select').addEventListener('change', function() {
+    rootOffset = parseInt(this.value);
+    showDetail();
+  });
+
+  document.getElementById('play-scale-btn').addEventListener('click', () => {
+    clearTimeout(playTimeout);
+    const root = 60 + rootOffset;
+    const notes = getModeNotes(selectedMode, root);
+    const delay = 0.35;
+    notes.forEach((n, i) => {
+      playNote(midiToFreq(n), i * delay, 0.4);
+    });
+  });
+
+  document.getElementById('stop-btn').addEventListener('click', () => {
+    if (audioCtx) {
+      audioCtx.close();
+      audioCtx = null;
+    }
+  });
+
+  buildModeList();
+  showDetail();
+})();
+</script>
+</body>
+</html>
